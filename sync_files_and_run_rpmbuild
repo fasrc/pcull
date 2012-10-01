@@ -1,0 +1,29 @@
+#!/usr/bin/env bash
+set -e
+
+DATE=$(date +%Y%m%d)
+
+forig=pcull-0.0.1-00000000.spec
+f="${forig/00000000/$DATE}"
+cp -af "$forig" "$f"
+sed -i 's/00000000/'$DATE'/g' "$f"
+
+if [ "$(id -u)" -ne 0 ] || [ -z "$SUDO_UID" ]; then
+	echo "*** ERROR *** this script is meant to be run with sudo" >&2
+	exit 1
+fi
+
+rm -fr /etc/pcull
+
+install -o root -g root -m 755    usr/sbin/pcull    /usr/sbin/pcull
+install -o root -g root -m 755    etc/init.d/pcull /etc/init.d/pcull
+install -o root -g root -m 755 -d /etc/pcull
+install -o root -g root -m 644    etc/pcull/*      /etc/pcull
+
+rpmbuild -bb --target=noarch pcull-0.0.1-$DATE.spec
+cp /usr/src/rpm/RPMS/noarch/pcull-0.0.1-$DATE.noarch.rpm .
+chown "$SUDO_UID:$SUDO_GID" pcull-0.0.1-$DATE.noarch.rpm
+rm pcull-0.0.1-$DATE.spec
+
+echo
+echo pcull-0.0.1-$DATE.noarch.rpm

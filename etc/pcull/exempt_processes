@@ -1,0 +1,79 @@
+#
+# list of process names exempt from pcull
+#
+# Exemptions are regular expressions, but word boundaries are automatically 
+# applied (so if you don't want that, wrap the entry with .* or something 
+# similar).  They're matched to the output of top, which is just the 
+# executable and not the full command line.
+#
+# Blank lines, lines containing just whitespace, and comments (text that starts 
+# with the # character, whether on a line by itself or appended to an entry) 
+# are ignored.
+#
+
+#(some of the following may always be owned by root and ignored anyways)
+
+#lustre
+ll_sa
+
+#lsf
+mbatchd
+mbschd
+sbatchd
+lim
+pim
+res
+nios
+
+#nx (only applicable to iliadnx, but it doesn't hurt)
+nxserver
+nxnode
+nxagent
+
+#sshd and shells -- note the leading -, i.e. only login shells (and not scripts) are exempt
+sshd
+-bash  
+-tcsh
+
+
+#--- misc
+
+sshd
+xterm
+
+vi
+vim
+emacs
+
+cp
+mv
+rm
+
+gzip
+gunzip
+bzip2
+tar
+gtar
+
+ssh
+scp
+rsync
+sftp
+svnserve
+
+cc
+gcc
+cc1
+cc1plus
+g77
+f771
+ld
+make
+gmake
+iccbin
+ifortbin
+fortcom
+icpcbin
+mcpcom
+gdb
+bjam

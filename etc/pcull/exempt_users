@@ -1,0 +1,23 @@
+#
+# list of usernames exempt from pcull
+#
+# Exemptions are regular expressions, but word boundaries are automatically 
+# applied (so if you don't want that, wrap the entry with .* or something 
+# similar).
+#
+# Blank lines, lines containing just whitespace, and comments (text that starts 
+# with the # character, whether on a line by itself or appended to an entry) 
+# are ignored.
+#
+
+
+#system
+root  #(always excluded anyways, but just to be explicit)
+daemon
+lsfadmin
+
+#nx
+nx
+
+#fas_it etc.
+#...

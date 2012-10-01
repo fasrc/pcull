@@ -1,0 +1,150 @@
+#!/bin/bash
+#
+# chkconfig: 345 90 10
+# description: process cull daemon
+#
+# Extra command line arguments passed to this script are appended to the 
+# COMMAND_LINE when starting; in all other cases they're ignored.
+#
+
+
+#--- config
+
+#Remember to set the description in the comments for chkconfig above, too.
+
+#This is only used in messages from this script.
+SERVICE_NAME='pcull'
+
+#The command used to invoke the service, including any options/arguments.  This 
+#is used as the search string for finding processes to stop, determining 
+#status, etc. (see above notes).  Note that command line options may be 
+#appended when start is called.
+COMMAND_LINE='/usr/sbin/pcull --daemonize --loop --log-file=/var/log/pcull.log'  #--log-file may still be overridden on the command line
+
+#If not blank, makes sure that start and stop run as the specified user (this 
+#does not su or sudo to that user, just checks the current user).  It also 
+#helps for process selection (status and stop), as the search will be limited 
+#to processes owned by the specified user.
+SHOULD_RUN_AS=''
+
+
+#--- helpers
+
+pids () {
+	args=''
+	[ -n "$SHOULD_RUN_AS" ] && args="-u $SHOULD_RUN_AS" || args='ax'
+	ps $args -o 'pid command' | grep -F "$COMMAND_LINE" | grep -vP '\b\d+ grep\b' | awk '{print $1}'
+}
+
+enforce_user () {
+	if [ "$(id -un)" != "$SHOULD_RUN_AS" ]; then
+		echo "*** ERROR *** this script must be run as [$SHOULD_RUN_AS]" >&2
+		exit 1
+	fi
+}
+
+
+#--- misc
+
+test "$(uname)" = Darwin && xargsnrie='' || xargsnrie='-r'
+
+
+#--- main actions
+
+start() {
+	[ -n "$SHOULD_RUN_AS" ] && enforce_user
+
+	if [ $(pids | wc -l) -ne 0 ]; then
+		echo "*** ERROR *** $SERVICE_NAME appears to already be running" >&2
+		exit 1
+	fi
+
+	echo -n "Starting $SERVICE_NAME... "
+	
+	shift
+	$COMMAND_LINE "$@"
+	
+	if (($?)); then
+		echo "*** FAILED ***"
+		exit 1
+	fi
+
+	echo "done."
+}
+
+stop() {
+	[ -n "$SHOULD_RUN_AS" ] && enforce_user
+
+	echo -n "Stopping $SERVICE_NAME... "
+
+	if [ "$(pids | wc -l)" -eq 0 ]; then
+		echo "already not running."
+	else
+		pids | xargs $xargsnrie kill &>/dev/null
+		sleep 0.25
+		if [ "$(pids | wc -l)" -ne 0 ]; then
+			sleep 3
+			pids | xargs $xargsnrie kill -9 &>/dev/null
+			sleep 0.25
+		fi
+		
+		if [ "$(pids | wc -l)" -ne 0 ]; then
+			echo "*** FAILED ***"
+			exit 1
+		fi
+		
+		echo "done."
+	fi
+}
+
+reload() {
+	pids | xargs $xargsnrie kill -HUP
+}
+
+status() {
+	echo -n "$SERVICE_NAME status: "
+
+	numprocs=$(pids | wc -l)
+	[ "$numprocs" -eq 0 ] && echo "stopped"
+	[ "$numprocs" -eq 1 ] && echo "started"
+	[ "$numprocs" -gt 1 ] && echo "started, and more than once instance running"  #stop will kill them all
+}
+
+notsupported() {
+	echo "*** ERROR*** $SERVICE_NAME: operation [$1] not supported"
+}
+
+usage() {
+	echo "Usage: $SERVICE_NAME start|stop|restart|reload"  #add to the arguments if supporting more
+}
+
+
+#---
+
+case "$1" in
+	start)
+		start "$@"
+		;;
+	stop)
+		stop
+		;;
+	restart)
+		stop
+		start
+		;;
+	reload)
+		reload
+		;;
+	status)
+		status
+		;;
+	'')
+		usage >&2
+		exit 1
+		;;
+	*)
+		notsupported "$1" >&2
+		usage >&2
+		exit 1
+		;;
+esac

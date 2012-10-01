@@ -1,0 +1,379 @@
+#!/usr/bin/env bash
+set -e
+set -u
+
+helpstr="\
+NAME
+    pcull - kill or renice processes that are overusing resources
+
+SYNOPSIS
+    pcull [--daemonize --loop --log-file=/SOME/FILE] [--debug --pretend]
+
+DESCRIPTION
+    This scripts takes action on processes that exceed resource limits defined 
+    in its configuration file, /etc/pcull/pcull.conf by default.  Currently, it 
+    renices processes that use too much CPU for a relatively short time, kills 
+    processes that use too much CPU for a relatively long time, and kills 
+    processes that use too much memory.  The culling does not kick in unless 
+    load avg or free memory are above/below the thresholds specified in the 
+    configuration file.  CPU-intensive jobs are also given a short grace period 
+    before being reniced, again set in the configuration file.  When this 
+    script takes culling actions, e-mail is sent to the affected user and any 
+    other users specified in the configuration file.
+
+    The files /etc/pcull/exempt_users and /etc/pcull/exempt_processes can be 
+    used to specify users and processes (as regular expressions) that are to be 
+    exempt from culling.  The root user is automatically exempt.  The files 
+    /etc/pcull/*_subject.sh and /etc/pcull/*_body.sh are scripts that build the 
+    subject and body of emails that are sent out.  See the comments in those 
+    files for more details.
+
+    The base configuration directory, /etc/pcull by default, is actually 
+    computed relative to the location of the pcull script.
+
+    The following call will run pcull once and simply print to stderr the 
+    actions it would take:
+    
+        pcull --pretend --debug
+    
+    The following call will run pcull forever in the background, renicing 
+    and killing jobs that exceed resource limits:
+        
+        pcull --daemonize --loop --log-file=/var/log/pcull
+    
+    The rpm package of this script provides an init script which can be used to 
+    control pcull running in looping, daemonized mode.  Any arguments passed to 
+    start are passed on to the pcull script.  By default, the init script will 
+    configure pcull to write its log to /var/log/pcull.log.
+ 
+OPTIONS
+    --pretend
+        only write to the log, don't take any real action
+    
+    --debug
+        write extra verbose information to the log
+    
+    --log-file
+        path of where to write log messages; must be an absolute path; default 
+        is /dev/stderr
+    
+    --daemonize
+        detach from the terminal, run in the background, etc.
+    
+    --loop
+        execute forever in a loop; see configuration file option LOOP_INTERVAL
+    
+    -h, --help
+        print this help and exit
+    
+KNOWN BUGS
+    One SIGHUP will cause the script to properly reload the configuration, but 
+    further SIGHUPs appear to be ignored.
+
+AUTHOR
+    John Brunelle <john_brunelle@harvard.edu>
+    Harvard FAS Research Computing
+"
+
+
+#--- config, parse command line options, etc.
+
+#save the original args (used when daemonizing and for SIGHUP trap)
+origargs="$@"
+
+#compute the name of this script and its full path
+progname="$(basename "$0")"
+progpath="$(readlink -f "$0")"
+
+#base config file directory
+CONFIG_DIR="$(readlink -f "$(dirname "$progpath")"/../../etc/pcull)"
+
+#load the main config
+source "$CONFIG_DIR/$progname.conf"
+
+#override with any command line options
+args=$(getopt -l pretend,debug,log-file:,daemonize,loop,help -o h -- "$@")
+if [ $? -ne 0 ]; then
+	exit 65  #(getopt will have written the error message)
+fi
+eval set -- "$args"
+while [ ! -z "$1" ]; do
+	case "$1" in
+		--pretend)
+			PRETEND=true
+			;;
+		--debug)
+			DEBUG=true
+			;;
+		--log-file)
+			LOG_FILE="$2"
+			shift
+			;;
+		--daemonize)
+			DAEMONIZE=true
+			;;
+		--loop)
+			LOOP=true
+			;;
+
+		-h | --help)
+			echo -n "$helpstr"
+			exit 0
+			;;
+		--) shift
+			break
+			;;
+	esac
+	shift
+done
+
+#if daemonizing, this cd's to /, which makes relative $LOG_FILE problematic
+if [[ "$LOG_FILE" != /* ]]; then
+	echo "*** ERROR *** log file [$LOG_FILE] must be an absolute path" >&2
+	exit 1
+fi
+if ! touch "$LOG_FILE" &>/dev/null ; then
+	echo "*** ERROR *** log file [$LOG_FILE] is not writable" >&2
+	exit 1
+fi
+
+#daemonize (if directed to) by calling setsid and forking (this is mainly copy-n-paste from other code, so not all comments may apply)
+if "$DAEMONIZE"; then
+	if [ -z "${DAEMONIZED:-}" ]; then
+		#step 1: put this in a new session (and process group) with no controlling terminal
+		export DAEMONIZED=1
+		
+		#it's okay if the following setsid process ends up a process group leader (e.g. this script is sourced from a shell with active job control), since setsid will automatically fork and continue in its child (which isn't a process group leader)
+		#	in this case, the setsid call will immediately return since this script will only wait on the parent, which exits
+		#it's also okay if the following setsid process *doesn't* end up a process leader (the usual case), and therefore doesn't fork, since the next step below forks anyways
+		#	in this case, this script will wait on the setsid call, but once that process reaches the fork in step 2 below, it (the parent in that fork step) exits
+		setsid $progpath $origargs
+		exit
+	elif [ "$DAEMONIZED" -eq 1 ]; then
+		#step 2: fork, to make sure no parent hangs waiting (possibly already taken care of be setsid above), and to make the new session and new process group have no leaders
+		export DAEMONIZED=2
+		
+		$progpath $origargs <&0 &  #without the <&0, it will redirect stdin from /dev/null (stdout and stderr are not altered like this)
+		exit
+	elif [ "$DAEMONIZED" -eq 2 ]; then
+		#step 3: don't leave anything from the calling environment open
+		DAEMONIZED=y
+		
+		cd /
+		umask "$UMASK"
+		test -t 0 && exec 0</dev/null
+		test -t 1 && exec 1>/dev/null
+		test -t 2 && exec 2>/dev/null
+		#(no exit; code continues in the calling script)
+
+		unset DAEMONIZED
+	else
+		echo "*** ERROR *** the DAEMONIZED environment variable appears to already be in use for some other purpose" >&2
+		exit 1
+	fi
+	
+	exec 2>>"$LOG_FILE"
+fi
+
+
+#--- helpers, shorthand, etc.
+
+log () {
+	msg="$(date)"
+	$PRETEND && msg="$msg: PRETEND mode"
+	msg="$msg: $@"
+	echo "$msg" >> "$LOG_FILE"
+}
+
+log 'starting'
+
+trap "log 'exiting'" EXIT
+
+#reload config (by re-executing) upon SIGHUP
+if [ "$DAEMONIZE" ]; then
+	trap "log 'received SIGHUP, restarting' && exec $progpath $origargs" SIGHUP
+fi
+
+$DEBUG && log "configuration directory: $CONFIG_DIR"
+
+#concatenate all the entries in the respective exempt lists with the | character
+#ingnore comments, blank lines, empty lines, and that pesky last newline
+exempt_users_re=$(cat "$CONFIG_DIR/$EXEMPT_USER_FILE" | sed -e 's/#.*$//' -e 's/\s*$//' -e '/^$/d' | tr '\n' '|' | sed 's/|*$//')
+exempt_procs_re=$(cat "$CONFIG_DIR/$EXEMPT_USER_PROC" | sed -e 's/#.*$//' -e 's/\s*$//' -e '/^$/d' | tr '\n' '|' | sed 's/|*$//')
+
+#awk programs to selectively grab lines from top output
+$DEBUG && log 'process attribute indices: 1   2         3   4   5     6    7   8 9    10      11     12'
+$DEBUG && log 'process attribute indices: PID USER      PR  NI  VIRT  RES  SHR S %CPU %MEM    TIME+  COMMAND'
+awkprog_exempt='{if ($2 !~ /\<(root|'"$exempt_users_re"')\>/ && $12 !~ /\<('"$exempt_procs_re"')\>/) print $0}'
+$DEBUG && log "exempt filter   : $awkprog_exempt"
+awkprog_limits='{if ($9 > '"$RENICE_IF_PCPU_GT"' || $9 > '"$KILL_IF_PCPU_GT"' || $10 > '"$KILL_IF_PMEM_GT"') print $0}'  #(this is just a loose cut for efficiency -- each of these processes is checked in detail later)
+$DEBUG && log "flagged programs: $awkprog_limits"
+
+oneline () {
+	#read stdin, converting newlines to '; ' (and deleting the last one)
+	cat | tr '\n' ';' | sed 's/;/; /g' | sed 's/; $//'
+}
+
+runningpids() {
+	#echo arguments if they're pids of running processes
+	for p in "$@"; do test -d /proc/"$p" && echo $p; done
+	return 0
+}
+
+killgently () {
+	#kill given pids with SIGTERM, then SIGKILL if necessary
+	#this could still leave orphans
+	test "$(uname)" = Darwin && xargsnrie='' || xargsnrie='-r'
+	runningpids "$@" | xargs $xargsnrie kill &>/dev/null || true
+	sleep 0.25
+	if [ "$(runningpids "$@" | wc -l)" -ne 0 ]; then
+		sleep 3
+		runningpids "$@" | xargs $xargsnrie kill -9 &>/dev/null || true
+		sleep 0.25
+	fi
+	if [ "$(runningpids "$@" | wc -l)" -ne 0 ]; then
+		log "WARNING: unable to kill pid(s) [$(runningpids "$@" | oneline)]"
+	fi
+}
+
+etime2seconds() {
+	#convert [[dd-]hh:]mm:ss (e.g. ps's etime field) to seconds
+	read -r ss mm hh dd <<< $(echo "$1" | sed 's/[-:]/ /g' | sed 's/\<0\+/ /g' | awk '{print $4, $3, $2, $1}')
+	(( t = $ss ))
+	test -n "$mm" && (( t +=    60 * $mm ))
+	test -n "$hh" && (( t +=  3600 * $hh ))
+	test -n "$dd" && (( t += 86400 * $dd ))
+	echo $t
+}
+
+
+#--- main check
+
+while true; do
+	loadavg="$(cat /proc/loadavg | awk '{print $1}')"
+	freemem="$(free -m | awk 'NR==3 {print $4}')"
+
+	if [ "$(echo "$loadavg < $LOAD_AVG_TRIGGER" | bc)" -eq 1 ] && [ "$(echo "$freemem > $FREE_MEM_TRIGGER" | bc)" -eq 1 ]; then
+		$DEBUG && log "skipping process culling loop since loadavg $loadavg < $LOAD_AVG_TRIGGER and freemem $freemem > $FREE_MEM_TRIGGER"
+	else
+		$DEBUG && log "starting process culling loop"
+		
+		#run top in batch mode |
+		#skip this process |
+		#skip anything that doesn't even look like a problem (for efficiency) |
+		#skip any exempt processes (by user and/or process name) | ...
+		top -bn1 | tail -n +8 | \
+		grep -v "^$$" | \
+		gawk "$awkprog_limits" | \
+		gawk "$awkprog_exempt" | \
+		while read pid user pr ni virt res shr s pcpu pmem time cmd; do
+			#(careful now... piping into a builtin puts us in a subshell)
+			
+			#pcpu from top is the instantaneous statistic; pcpu from ps is cumulative; use the latter as the real criteria for taking action
+			#username printed by top may be truncated (but username from ps has its own problems, see below)
+			#also compute some other things used below
+			read -r pcpu user etime nice <<< "$(ps -o 'pcpu= user= etime= nice=' $pid)"
+
+			#ps converts usernames to numeric uids if they're greater than 8 characters; we want the full username
+			echo "$user" | grep -Pq '^\d+$' && user="$(getent passwd | awk -F: '$3=='"$user"' {print $1}' | head -n 1)"  #(there should only be one anyways, but the head makes sure we don't corrupt the variable)
+			
+			#the command as printed from top does not include the full command line
+			fullcmd="$(ps -o command= $pid)"
+			[ -z "$fullcmd" ] && fullcmd="$cmd"  #(maybe the process already finished)
+			jobdesc="pid=$pid user=$user %cpu=$pcpu %mem=$pmem etime=$etime cmd=$fullcmd"
+
+			#truncate the command to 50 chars (for use in mail message scripts that are sourced from here, if desired)
+			shortcmd="${fullcmd:0:50}"
+			test "${#shortcmd}" -eq 50 && shortcmd="$shortcmd"...
+			
+			#convert etime, in format [[dd-]hh:]mm:ss, to seconds
+			seconds="$(etime2seconds "$etime")"
+			
+			#convert the username to an email address
+			mailaddr="$($USERNAME_2_EMAIL $user 2>/dev/null || true)"  #`|| true' in order to not trigger an exit due to set -e above
+			[ -z "$mailaddr" ] && mailaddr=$user
+			
+			$DEBUG && log "found a candidate: $jobdesc"
+			
+
+			#--- kill memory-intensive jobs
+			if [ "$(echo "$pmem > $KILL_IF_PMEM_GT" | bc)" -eq 1 ] && [ "$seconds" -gt "$KILL_IF_PMEM_GT_AND_LIFETIME_GT" ]; then
+				if $PRETEND || msg=$(killgently $pid 2>&1); then
+					log "killed: $jobdesc"
+				else
+					log "ERROR: failed to kill: $jobdesc [$(echo "$msg" | oneline)]"
+				fi
+				unset msg
+				
+				subj="$(source "$CONFIG_DIR/$KILL_PMEM_SUBJ_SCRIPT")"
+				body="$(source "$CONFIG_DIR/$KILL_PMEM_BODY_SCRIPT")"
+				if $PRETEND || msg=$(echo "$body" | mail $EXTRA_MAIL_ARGS_PRE -s "$subj" "$mailaddr" $EXTRA_MAIL_ARGS_POST 2>&1 | oneline); then
+					#argh, mail doesn't have non-zero exit status when it fails
+					if [ -z "${msg:-}" ]; then
+						log "mailed: $mailaddr about $jobdesc"
+					else	
+						log "ERROR: failed to mail $mailaddr about $jobdesc [$(echo "$msg" | oneline)]"
+					fi
+				fi
+				unset msg
+			fi
+
+
+			#--- kill cpu-intensive jobs
+			if [ "$(echo "$pcpu > $KILL_IF_PCPU_GT" | bc)" -eq 1 ] && [ "$seconds" -gt "$KILL_IF_PCPU_GT_AND_LIFETIME_GT" ]; then
+				if $PRETEND || msg=$(killgently $pid 2>&1); then
+					log "killed: $jobdesc"
+				else
+					log "ERROR: failed to kill: $jobdesc [$(echo "$msg" | oneline)]"
+				fi
+				unset msg
+				
+				subj="$(source "$CONFIG_DIR/$KILL_PCPU_SUBJ_SCRIPT")"
+				body="$(source "$CONFIG_DIR/$KILL_PCPU_BODY_SCRIPT")"
+				if $PRETEND || msg=$(echo "$body" | mail $EXTRA_MAIL_ARGS_PRE -s "$subj" "$mailaddr" $EXTRA_MAIL_ARGS_POST 2>&1 | oneline); then
+					#argh, mail doesn't have non-zero exit status when it fails
+					if [ -z "${msg:-}" ]; then
+						log "mailed: $mailaddr about $jobdesc"
+					else	
+						log "ERROR: failed to mail $mailaddr about $jobdesc [$(echo "$msg" | oneline)]"
+					fi
+				fi
+				unset msg
+			fi
+
+
+			#--- renice other cpu-intensive jobs
+			if [ "$(echo "$pcpu > $RENICE_IF_PCPU_GT" | bc)" -eq 1 ] && [ "$seconds" -lt "$RENICE_IF_PCPU_GT_AND_LIFETIME_GT" ]; then
+				#don't renice if it's already been reniced
+				if [ "$nice" -eq 19 ]; then
+					$DEBUG && log "skipping already reniced process: $jobdesc"
+				else
+					if $PRETEND || msg=$(renice 19 -p $pid 2>&1); then
+						log "reniced: $jobdesc"
+					else
+						log "ERROR: failed to renice: $jobdesc [$(echo "$msg" | oneline)]"
+					fi
+					unset msg
+					
+					subj=$(source "$CONFIG_DIR/$RENICE_PCPU_SUBJ_SCRIPT")
+					body=$(source "$CONFIG_DIR/$RENICE_PCPU_BODY_SCRIPT")
+					if $PRETEND || msg=$(echo "$body" | mail $EXTRA_MAIL_ARGS_PRE -s "$subj" "$mailaddr" $EXTRA_MAIL_ARGS_POST 2>&1 | oneline); then
+						#argh, mail doesn't have non-zero exit status when it fails
+						if [ -z "${msg:-}" ]; then
+							log "mailed: $mailaddr about $jobdesc"
+						else	
+							log "ERROR: failed to mail $mailaddr about $jobdesc [$(echo "$msg" | oneline)]"
+						fi
+					fi
+					unset msg
+				fi
+			fi
+		done
+		$DEBUG && log "ending process culling loop"
+	fi
+	
+	! $LOOP && break;
+
+	$DEBUG && log "sleeping $LOOP_INTERVAL seconds"
+	sleep "$LOOP_INTERVAL"
+done
