@@ -3,6 +3,7 @@ pcull - kill or renice processes that are overusing resources
 See `pcull --help' for more information.  The output of that is reproduced 
 here, but may be out of date:
 
+
 -------------------------------------------------------------------------------
 
 
@@ -36,43 +37,44 @@ DESCRIPTION
 
     The following call will run pcull once and simply print to stderr the 
     actions it would take:
-    
+
         pcull --pretend --debug
-    
+
     The following call will run pcull forever in the background, renicing 
     and killing jobs that exceed resource limits:
-        
+
         pcull --daemonize --loop --log-file=/var/log/pcull
-    
+
     The rpm package of this script provides an init script which can be used to 
     control pcull running in looping, daemonized mode.  Any arguments passed to 
     start are passed on to the pcull script.  By default, the init script will 
     configure pcull to write its log to /var/log/pcull.log.
- 
+
 OPTIONS
     --pretend
         only write to the log, don't take any real action
-    
+
     --debug
         write extra verbose information to the log
-    
+
     --log-file
         path of where to write log messages; must be an absolute path; default 
         is /dev/stderr
-    
+
     --daemonize
         detach from the terminal, run in the background, etc.
-    
+
     --loop
         execute forever in a loop; see configuration file option LOOP_INTERVAL
-    
+
     -h, --help
         print this help and exit
-    
+
 KNOWN BUGS
     One SIGHUP will cause the script to properly reload the configuration, but 
     further SIGHUPs appear to be ignored.
 
 AUTHOR
-    John Brunelle <john_brunelle@harvard.edu>
+    Copyright (c) 2009-2013
     Harvard FAS Research Computing
+    John Brunelle <john_brunelle@harvard.edu>
