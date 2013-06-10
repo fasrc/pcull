@@ -300,7 +300,7 @@ while true; do
 			mailaddr="$($USERNAME_2_EMAIL $user 2>/dev/null || true)"  #`|| true' in order to not trigger an exit due to set -e above
 			[ -z "$mailaddr" ] && mailaddr=$user
 			
-			$DEBUG && log "found a candidate: $jobdesc"
+			$DEBUG && log "found a candidate to investigate: $jobdesc"
 			
 
 			#--- kill memory-intensive jobs
@@ -328,6 +328,8 @@ while true; do
 					fi
 				fi
 				unset msg
+			else
+				$DEBUG && log "job is within memory allowances: $jobdesc"
 			fi
 
 
@@ -357,11 +359,8 @@ while true; do
 				fi
 				
 				unset msg
-			fi
-
-
 			#--- renice other cpu-intensive jobs
-			if [ "$(echo "$pcpu > $RENICE_IF_PCPU_GT" | bc)" -eq 1 ] && [ "$seconds" -lt "$RENICE_IF_PCPU_GT_AND_LIFETIME_GT" ]; then
+			elif [ "$(echo "$pcpu > $RENICE_IF_PCPU_GT" | bc)" -eq 1 ] && [ "$seconds" -gt "$RENICE_IF_PCPU_GT_AND_LIFETIME_GT" ]; then
 				#don't renice if it's already been reniced
 				if [ "$nice" -eq 19 ]; then
 					$DEBUG && log "skipping already reniced process: $jobdesc"
@@ -390,6 +389,8 @@ while true; do
 					fi
 					unset msg
 				fi
+			else
+				$DEBUG && log "job is within cpu allowances: $jobdesc"
 			fi
 		done
 		$DEBUG && log "ending process culling loop"
