@@ -2,7 +2,7 @@ Name: pcull
 Summary: process culling daemon
 Version: 0.0.2
 Release: 20130610
-License: GPL
+License: BSD
 Group: System/Management
 Prefix: /
 
