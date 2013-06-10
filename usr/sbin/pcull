@@ -314,12 +314,17 @@ while true; do
 				
 				subj="$(source "$CONFIG_DIR/$KILL_PMEM_SUBJ_SCRIPT")"
 				body="$(source "$CONFIG_DIR/$KILL_PMEM_BODY_SCRIPT")"
-				if $PRETEND || msg=$(echo "$body" | mail $EXTRA_MAIL_ARGS_PRE -s "$subj" "$mailaddr" $EXTRA_MAIL_ARGS_POST 2>&1 | oneline); then
-					#argh, mail doesn't have non-zero exit status when it fails
+				
+				headers="TO:$mailaddr"
+				test -n "${MAIL_FROM:-}" && headers="$headers\nFROM:$MAIL_FROM"
+				test -n "${MAIL_BCC:-}"  && headers="$headers\nBCC:$MAIL_BCC"
+				headers="$headers\nSUBJECT:$subj"
+				if $PRETEND || msg=$(echo -e "$headers\n\n$body" | sendmail -t 2>&1 | oneline); then
+					#sendmail doesn't have non-zero exit status when it fails
 					if [ -z "${msg:-}" ]; then
 						log "mailed: $mailaddr about $jobdesc"
 					else	
-						log "ERROR: failed to mail $mailaddr about $jobdesc [$(echo "$msg" | oneline)]"
+						log "ERROR: possibly failed to mail $mailaddr about $jobdesc [$(echo "$msg" | oneline)]"
 					fi
 				fi
 				unset msg
@@ -337,14 +342,20 @@ while true; do
 				
 				subj="$(source "$CONFIG_DIR/$KILL_PCPU_SUBJ_SCRIPT")"
 				body="$(source "$CONFIG_DIR/$KILL_PCPU_BODY_SCRIPT")"
-				if $PRETEND || msg=$(echo "$body" | mail $EXTRA_MAIL_ARGS_PRE -s "$subj" "$mailaddr" $EXTRA_MAIL_ARGS_POST 2>&1 | oneline); then
-					#argh, mail doesn't have non-zero exit status when it fails
+				
+				headers="TO:$mailaddr"
+				test -n "${MAIL_FROM:-}" && headers="$headers\nFROM:$MAIL_FROM"
+				test -n "${MAIL_BCC:-}"  && headers="$headers\nBCC:$MAIL_BCC"
+				headers="$headers\nSUBJECT:$subj"
+				if $PRETEND || msg=$(echo -e "$headers\n\n$body" | sendmail -t 2>&1 | oneline); then
+					#sendmail doesn't have non-zero exit status when it fails
 					if [ -z "${msg:-}" ]; then
 						log "mailed: $mailaddr about $jobdesc"
 					else	
-						log "ERROR: failed to mail $mailaddr about $jobdesc [$(echo "$msg" | oneline)]"
+						log "ERROR: possibly failed to mail $mailaddr about $jobdesc [$(echo "$msg" | oneline)]"
 					fi
 				fi
+				
 				unset msg
 			fi
 
@@ -364,12 +375,17 @@ while true; do
 					
 					subj=$(source "$CONFIG_DIR/$RENICE_PCPU_SUBJ_SCRIPT")
 					body=$(source "$CONFIG_DIR/$RENICE_PCPU_BODY_SCRIPT")
-					if $PRETEND || msg=$(echo "$body" | mail $EXTRA_MAIL_ARGS_PRE -s "$subj" "$mailaddr" $EXTRA_MAIL_ARGS_POST 2>&1 | oneline); then
-						#argh, mail doesn't have non-zero exit status when it fails
+
+					headers="TO:$mailaddr"
+					test -n "${MAIL_FROM:-}" && headers="$headers\nFROM:$MAIL_FROM"
+					test -n "${MAIL_BCC:-}"  && headers="$headers\nBCC:$MAIL_BCC"
+					headers="$headers\nSUBJECT:$subj"
+					if $PRETEND || msg=$(echo -e "$headers\n\n$body" | sendmail -t 2>&1 | oneline); then
+						#sendmail doesn't have non-zero exit status when it fails
 						if [ -z "${msg:-}" ]; then
 							log "mailed: $mailaddr about $jobdesc"
 						else	
-							log "ERROR: failed to mail $mailaddr about $jobdesc [$(echo "$msg" | oneline)]"
+							log "ERROR: possibly failed to mail $mailaddr about $jobdesc [$(echo "$msg" | oneline)]"
 						fi
 					fi
 					unset msg

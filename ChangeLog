@@ -2,5 +2,11 @@
 	* initial release
 
 0.0.2 (2013-06-10)
+	* added ability to kill CPU hogs
+
+	* switched from mailx to sendmail and created specific config options for 
+	  envelope addressing
+
 	* explicit copyright and license
+
 	* fixed documentation typos
