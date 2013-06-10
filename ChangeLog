@@ -7,6 +7,8 @@
 	* switched from mailx to sendmail and created specific config options for 
 	  envelope addressing
 
+	* minor bug fixes
+
 	* explicit copyright and license
 
 	* fixed documentation typos
