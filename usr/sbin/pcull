@@ -332,7 +332,7 @@ while true; do
 				fi
 				unset msg
 			else
-				$DEBUG && log "job is within memory allowances: $jobdesc"
+				$DEBUG && log "process is within memory allowances: $jobdesc"
 
 				#--- kill cpu-intensive jobs
 				if [ "$(echo "$pcpu > $KILL_IF_PCPU_GT" | bc)" -eq 1 ] && [ "$seconds" -gt "$KILL_IF_PCPU_GT_AND_LIFETIME_GT" ]; then
@@ -391,7 +391,7 @@ while true; do
 						unset msg
 					fi
 				else
-					$DEBUG && log "job is within cpu allowances: $jobdesc"
+					$DEBUG && log "process is within cpu allowances: $jobdesc"
 				fi
 			fi
 		done
