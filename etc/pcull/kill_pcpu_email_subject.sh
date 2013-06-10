@@ -4,4 +4,4 @@
 # variables defined there are available for use here.
 #
 
-echo "[$user] Odyssey access node load manager killed process [$cmd] running on [$(hostname | awk -F. '{print $1}')]"
+echo "[$user] Odyssey access node load manager killed process [$cmd] running on [$(hostname -s)]"
