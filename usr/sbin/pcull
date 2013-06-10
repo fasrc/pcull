@@ -330,51 +330,19 @@ while true; do
 				unset msg
 			else
 				$DEBUG && log "job is within memory allowances: $jobdesc"
-			fi
 
-
-			#--- kill cpu-intensive jobs
-			if [ "$(echo "$pcpu > $KILL_IF_PCPU_GT" | bc)" -eq 1 ] && [ "$seconds" -gt "$KILL_IF_PCPU_GT_AND_LIFETIME_GT" ]; then
-				if $PRETEND || msg=$(killgently $pid 2>&1); then
-					log "killed: $jobdesc"
-				else
-					log "ERROR: failed to kill: $jobdesc [$(echo "$msg" | oneline)]"
-				fi
-				unset msg
-				
-				subj="$(source "$CONFIG_DIR/$KILL_PCPU_SUBJ_SCRIPT")"
-				body="$(source "$CONFIG_DIR/$KILL_PCPU_BODY_SCRIPT")"
-				
-				headers="TO:$mailaddr"
-				test -n "${MAIL_FROM:-}" && headers="$headers\nFROM:$MAIL_FROM"
-				test -n "${MAIL_BCC:-}"  && headers="$headers\nBCC:$MAIL_BCC"
-				headers="$headers\nSUBJECT:$subj"
-				if $PRETEND || msg=$(echo -e "$headers\n\n$body" | sendmail -t 2>&1 | oneline); then
-					#sendmail doesn't have non-zero exit status when it fails
-					if [ -z "${msg:-}" ]; then
-						log "mailed: $mailaddr about $jobdesc"
-					else	
-						log "ERROR: possibly failed to mail $mailaddr about $jobdesc [$(echo "$msg" | oneline)]"
-					fi
-				fi
-				
-				unset msg
-			#--- renice other cpu-intensive jobs
-			elif [ "$(echo "$pcpu > $RENICE_IF_PCPU_GT" | bc)" -eq 1 ] && [ "$seconds" -gt "$RENICE_IF_PCPU_GT_AND_LIFETIME_GT" ]; then
-				#don't renice if it's already been reniced
-				if [ "$nice" -eq 19 ]; then
-					$DEBUG && log "skipping already reniced process: $jobdesc"
-				else
-					if $PRETEND || msg=$(renice 19 -p $pid 2>&1); then
-						log "reniced: $jobdesc"
+				#--- kill cpu-intensive jobs
+				if [ "$(echo "$pcpu > $KILL_IF_PCPU_GT" | bc)" -eq 1 ] && [ "$seconds" -gt "$KILL_IF_PCPU_GT_AND_LIFETIME_GT" ]; then
+					if $PRETEND || msg=$(killgently $pid 2>&1); then
+						log "killed: $jobdesc"
 					else
-						log "ERROR: failed to renice: $jobdesc [$(echo "$msg" | oneline)]"
+						log "ERROR: failed to kill: $jobdesc [$(echo "$msg" | oneline)]"
 					fi
 					unset msg
 					
-					subj=$(source "$CONFIG_DIR/$RENICE_PCPU_SUBJ_SCRIPT")
-					body=$(source "$CONFIG_DIR/$RENICE_PCPU_BODY_SCRIPT")
-
+					subj="$(source "$CONFIG_DIR/$KILL_PCPU_SUBJ_SCRIPT")"
+					body="$(source "$CONFIG_DIR/$KILL_PCPU_BODY_SCRIPT")"
+					
 					headers="TO:$mailaddr"
 					test -n "${MAIL_FROM:-}" && headers="$headers\nFROM:$MAIL_FROM"
 					test -n "${MAIL_BCC:-}"  && headers="$headers\nBCC:$MAIL_BCC"
@@ -387,10 +355,41 @@ while true; do
 							log "ERROR: possibly failed to mail $mailaddr about $jobdesc [$(echo "$msg" | oneline)]"
 						fi
 					fi
+					
 					unset msg
+				#--- renice other cpu-intensive jobs
+				elif [ "$(echo "$pcpu > $RENICE_IF_PCPU_GT" | bc)" -eq 1 ] && [ "$seconds" -gt "$RENICE_IF_PCPU_GT_AND_LIFETIME_GT" ]; then
+					#don't renice if it's already been reniced
+					if [ "$nice" -eq 19 ]; then
+						$DEBUG && log "skipping already reniced process: $jobdesc"
+					else
+						if $PRETEND || msg=$(renice 19 -p $pid 2>&1); then
+							log "reniced: $jobdesc"
+						else
+							log "ERROR: failed to renice: $jobdesc [$(echo "$msg" | oneline)]"
+						fi
+						unset msg
+						
+						subj=$(source "$CONFIG_DIR/$RENICE_PCPU_SUBJ_SCRIPT")
+						body=$(source "$CONFIG_DIR/$RENICE_PCPU_BODY_SCRIPT")
+
+						headers="TO:$mailaddr"
+						test -n "${MAIL_FROM:-}" && headers="$headers\nFROM:$MAIL_FROM"
+						test -n "${MAIL_BCC:-}"  && headers="$headers\nBCC:$MAIL_BCC"
+						headers="$headers\nSUBJECT:$subj"
+						if $PRETEND || msg=$(echo -e "$headers\n\n$body" | sendmail -t 2>&1 | oneline); then
+							#sendmail doesn't have non-zero exit status when it fails
+							if [ -z "${msg:-}" ]; then
+								log "mailed: $mailaddr about $jobdesc"
+							else	
+								log "ERROR: possibly failed to mail $mailaddr about $jobdesc [$(echo "$msg" | oneline)]"
+							fi
+						fi
+						unset msg
+					fi
+				else
+					$DEBUG && log "job is within cpu allowances: $jobdesc"
 				fi
-			else
-				$DEBUG && log "job is within cpu allowances: $jobdesc"
 			fi
 		done
 		$DEBUG && log "ending process culling loop"
