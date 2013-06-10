@@ -281,6 +281,9 @@ while true; do
 			#also compute some other things used below
 			read -r pcpu user etime nice <<< "$(ps -o 'pcpu= user= etime= nice=' $pid)"
 
+			#process may have ended before the above line was executed
+			test -z ${pcpu:-} && continue
+
 			#ps converts usernames to numeric uids if they're greater than 8 characters; we want the full username
 			echo "$user" | grep -Pq '^\d+$' && user="$(getent passwd | awk -F: '$3=='"$user"' {print $1}' | head -n 1)"  #(there should only be one anyways, but the head makes sure we don't corrupt the variable)
 			
