@@ -285,7 +285,7 @@ while true; do
 			test -z ${pcpu:-} && continue
 
 			#ps converts usernames to numeric uids if they're greater than 8 characters; we want the full username
-			echo "$user" | grep -Pq '^\d+$' && user="$(getent passwd | awk -F: '$3=='"$user"' {print $1}' | head -n 1)"  #(there should only be one anyways, but the head makes sure we don't corrupt the variable)
+			echo "$user" | grep -Pq '^\d+$' && user="$(getent passwd "$user" | awk -F: '{print $1}' | head -n 1)"  #(there should only be one anyways, but the head makes sure we don't corrupt the variable)
 			
 			#the command as printed from top does not include the full command line
 			fullcmd="$(ps -o command= $pid)"
