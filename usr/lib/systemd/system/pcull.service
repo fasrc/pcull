@@ -1,0 +1,9 @@
+[Unit]
+Description=pcull - kill or renice processes that are overusing resources
+
+[Service]
+EnvironmentFile=-/etc/sysconfig/pcull
+ExecStart=/usr/sbin/pcull --loop --log-file=/var/log/pcull.log
+
+[Install]
+WantedBy=multi-user.target
