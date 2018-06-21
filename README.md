@@ -80,3 +80,17 @@ AUTHOR
     Harvard FAS Research Computing
     John Brunelle <john_brunelle@harvard.edu>
 ```
+
+## Building an RPM
+To build an RPM package for RedHat-based systems:
+
+```
+$ git clone https://github.com/fasrc/pcull.git
+$ git archive -o pcull-0.0.3.tar.gz --prefix=pcull-0.0.3/ HEAD
+$ mkdir -p /root/rpmbuild/SOURCES
+$ mv pcull-0.0.3.tar.gz /root/rpmbuild/SOURCES
+$ rpmbuild -ba pcull.spec
+$ yum install /root/rpmbuild/RPMS/x86_64/pcull-0.0.3-20180621.noarch.rpm
+```
+
+NOTE: you might need to adjust the version/release in the example above.
