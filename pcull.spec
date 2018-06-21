@@ -9,6 +9,7 @@ License: BSD
 Group: System/Management
 Source0: %{pkgname}-%{version}.tar.gz
 
+BuildArch: noarch
 %if %{use_systemd}
 Requires: systemd
 BuildRequires: systemd
